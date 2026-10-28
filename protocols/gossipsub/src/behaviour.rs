@@ -3145,8 +3145,18 @@ where
         match peer.messages.try_push(rpc) {
             Ok(()) => true,
             Err(rpc) => {
-                // Sending failed because the channel is full.
-                tracing::warn!(%peer_id, ?rpc, "Send Queue full. Could not send Rpc.");
+                // Sending failed because the channel is full. A dropped control
+                // message (GRAFT, PRUNE, IDONTWANT) still warns, since it leaves
+                // the peer's view of the mesh out of step with ours. A dropped
+                // IHAVE, IWANT, publish or forward is ordinary back-pressure on
+                // a slow peer: it is counted below and charged to the peer's
+                // score, and logging each one at WARN floods the log on busy
+                // topics.
+                if rpc.priority() {
+                    tracing::warn!(%peer_id, ?rpc, "Send Queue full. Could not send Rpc.");
+                } else {
+                    tracing::debug!(%peer_id, ?rpc, "Send Queue full. Could not send Rpc.");
+                }
 
                 // Update failed message counter.
                 let failed_messages = self.failed_messages.entry(peer_id).or_default();
